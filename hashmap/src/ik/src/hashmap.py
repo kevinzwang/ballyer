@@ -19,12 +19,15 @@ def ik_service_client():
     # x,y, z positions
     x = 0.4
     #ys = np.linspace(-.7, .3, 4)  
-    ys = np.array([-0.7, -0.65, - 0.6, -0.55, -0.5, - -0.45, -0.4, -0.35, -0.3, -0.25, -0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3])
+    ys = np.array([-0.7, -0.65, -0.6, -0.55, -0.5, -0.45, -0.4, -0.35, -0.3, -0.25, -0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3])
     #zs = np.linspace(0, .7, 2)
     zs = np.array([0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7])
 
+
     # Set end effector quaternion: YOUR CODE HERE
     x_o, y_o, z_o, w_o = (0, -1, 0, 0)
+
+    t_start = rospy.get_time()
 
     main_dict = {}
     for y in ys:
@@ -62,6 +65,9 @@ def ik_service_client():
                 rospy.logerr("Result Error %d", response.result_type[0])
 
         main_dict[y] = y_dict
+    t_end = rospy.get_time()
+
+    print(t_end - t_start)
 
     with open('hashmap.txt', 'w') as f:
          f.write(str(main_dict))
