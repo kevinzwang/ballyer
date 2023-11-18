@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class BallPredictorNode:
-    def __init__(self, min_data_points=3):
+    def __init__(self, min_data_points=3, x_f=0.4):
         rospy.init_node('ball_predictor_node', anonymous=True)
 
         # Initialize arrays to store position data as NumPy arrays
@@ -32,7 +32,7 @@ class BallPredictorNode:
         self.ax.legend()
 
         # Define the final x value
-        self.x_f = 0.4
+        self.x_f = x_f
 
         # Minimum number of data points required for prediction
         self.min_data_points = min_data_points
