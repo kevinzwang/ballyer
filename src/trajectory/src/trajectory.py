@@ -1,87 +1,87 @@
 #!/usr/bin/env python
 
 import rospy
+from geometry_msgs.msg import Point
 import numpy as np
+import matplotlib.pyplot as plt
 
-from geometry_msgs import Point
+class BallPredictorNode:
+    def __init__(self):
+        rospy.init_node('ball_predictor_node', anonymous=True)
 
-x_data = np.array([])
-y_data = np.array([])
-z_data = np.array([])
+        # Initialize arrays to store position data as NumPy arrays
+        self.x_data = np.array([])
+        self.y_data = np.array([])
+        self.z_data = np.array([])
 
-x_f = 0.4
+        # Subscribe to the "ball_position" topic
+        rospy.Subscriber('ball_position', Point, self.position_callback)
 
-fig = plt.figure(figsize=(10, 8))
-ax = fig.add_subplot(111, projection='3d')
+        # Create a publisher for the "final_position" topic
+        self.final_position_publisher = rospy.Publisher('final_position', Point, queue_size=10)
 
-def new_point(Point):
-    #Add point to existing point arrays
-    x_data = np.append(xs, [Point.x])
-    y_data = np.append(ys, [Point.y])
-    z_data = np.append(zs, [Point.z])
+        # Initialize the plot
+        plt.ion()  # Turn on interactive mode
+        self.fig, self.ax = plt.subplots()
+        self.ax.set_xlabel('X')
+        self.ax.set_ylabel('Y')
+        self.ax.set_zlabel('Z')
+        self.ax.set_title('Ball Trajectory Prediction')
+        self.scatter = self.ax.scatter([], [], [], label='Real Position')
+        self.prediction_line, = self.ax.plot([], [], [], label='Trajectory Prediction')
+        self.ax.legend()
 
-    #Recalc trajectory
-    y_f, z_f = calc_end_point()
+        # Define the final x value
+        self.x_f = 0.4
 
-    f_p = Point
-    f_p.x = x_f
-    f_p.y = y_f
-    f_p.z = z_f
+    def position_callback(self, data):
+        # Update arrays with new position data
+        self.x_data = np.append(self.x_data, data.x)
+        self.y_data = np.append(self.y_data, data.y)
+        self.z_data = np.append(self.z_data, data.z)
 
-    #
-    pub.publish(f_p)
+        # Update the plot
+        self.scatter.set_offsets(np.column_stack((self.x_data, self.y_data, self.z_data)))
+        self.ax.figure.canvas.draw()
 
-    
-#Calcs end point at x_f
-def calc_end_point():
-    # Fitting models to predict Y and Z based on X
+        # Predict and publish final position
+        final_position = self.predict_final_position()
+        self.final_position_publisher.publish(final_position)
 
-    # Fitting models
-    # Assuming a linear relationship for Y = f(X)
-    coef_y_from_x = np.polyfit(x_data, y_data, 1)
+    def predict_final_position(self):
+        # Fit a linear curve to the current position data (X vs. Y)
+        linear_coefficients = np.polyfit(self.x_data, self.y_data, 1)
 
-    # Assuming a quadratic relationship for Z = f(X) (parabolic due to gravity)
-    coef_z_from_x = np.polyfit(x_data, z_data, 2)
+        # Fit a quadratic curve to the current position data (X vs. Z)
+        quadratic_coefficients = np.polyfit(self.x_data, self.z_data, 2)
 
-    # Function to predict Y and Z from X
-    def predict_yz_from_x(x):
-        y_predicted = np.polyval(coef_y_from_x, x)
-        z_predicted = np.polyval(coef_z_from_x, x)
-        return y_predicted, z_predicted
+        # Use the linear equation to predict y at the final x value
+        predicted_y = np.polyval(linear_coefficients, self.x_f)
 
-    # Predicting over a range of X values
-    x_range = np.linspace(x_data[0], 0.4, 100)
-    y_predicted, z_predicted = predict_yz_from_x(x_range)
+        # Use the quadratic equation to predict z at the final x value
+        predicted_z = np.polyval(quadratic_coefficients, self.x_f)
 
-    ax.clear()
+        # Create a Point message for the final position
+        final_position = Point()
+        final_position.x = self.x_f
+        final_position.y = predicted_y
+        final_position.z = predicted_z
 
-    ax.scatter(x_data, y_data, z_data, color='b', label='Actual Trajectory')
+        # Update the prediction line in the plot
+        x_vals = np.linspace(min(self.x_data), self.x_f, 100)
+        y_vals = np.polyval(linear_coefficients, x_vals)
+        z_vals = np.polyval(quadratic_coefficients, x_vals)
+        self.prediction_line.set_data(x_vals, y_vals)
+        self.prediction_line.set_3d_properties(z_vals)
 
-    # Predicted trajectory based on X
-    ax.plot(x_range, y_predicted, z_predicted, color='r', label='Predicted Trajectory from X')
+        return final_position
 
-    ax.set_xlabel('X-axis')
-    ax.set_ylabel('Y-axis')
-    ax.set_zlabel('Z-axis')
-    ax.set_title('YZ Trajectory Prediction Based on X Coordinate')
-    ax.legend()
-
-    plt.show()
-
-    return y_predicted[-1], z_predicted[-1]
-
-
-
-
-    
-def do_the_thing():
-    rospy.Subscriber("john_thingy", Point, new_point)
-    pub = rospy.Publisher('final_point', Point, queue_size=10)
-    rospy.spin()
-    
-
+    def run(self):
+        rospy.spin()
 
 if __name__ == '__main__':
-    rospy.init_node('traj_pub', anonymous=True)
-    rospy.init_node('traj_sub', anonymous=True)
-    do_the_thing()
+    try:
+        predictor_node = BallPredictorNode()
+        predictor_node.run()
+    except rospy.ROSInterruptException:
+        pass
