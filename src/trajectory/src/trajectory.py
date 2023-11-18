@@ -73,7 +73,7 @@ class BallPredictorNode:
         final_position.z = predicted_z
 
         # Update the prediction line in the plot
-        x_vals = np.linspace(min(self.x_data), self.x_f, 100)
+        x_vals = np.linspace(min(self.x_data), max(self.x_data), 100)
         y_vals = np.polyval(linear_coefficients, x_vals)
         z_vals = np.polyval(quadratic_coefficients, x_vals)
         self.prediction_line.set_data(x_vals, y_vals)
