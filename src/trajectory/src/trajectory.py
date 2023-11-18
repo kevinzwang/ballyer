@@ -66,18 +66,18 @@ class BallPredictorNode:
         # Use the quadratic equation to predict z at the final x value
         predicted_z = np.polyval(quadratic_coefficients, self.x_f)
 
-        # Create a Point message for the final position
-        final_position = Point()
-        final_position.x = self.x_f
-        final_position.y = predicted_y
-        final_position.z = predicted_z
-
         # Update the prediction line in the plot
         x_vals = np.linspace(min(self.x_data), max(self.x_data), 100)
         y_vals = np.polyval(linear_coefficients, x_vals)
         z_vals = np.polyval(quadratic_coefficients, x_vals)
         self.prediction_line.set_data(x_vals, y_vals)
         self.prediction_line.set_3d_properties(z_vals)
+
+        # Create a Point message for the final position
+        final_position = Point()
+        final_position.x = self.x_f
+        final_position.y = predicted_y
+        final_position.z = predicted_z
 
         return final_position
 
@@ -86,7 +86,7 @@ class BallPredictorNode:
 
 if __name__ == '__main__':
     try:
-        predictor_node = BallPredictorNode()
+        predictor_node = BallPredictorNode(min_data_points=3, x_f=0.4)
         predictor_node.run()
     except rospy.ROSInterruptException:
         pass
