@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class BallPredictorNode:
-    def __init__(self):
+    def __init__(self, min_data_points=3):
         rospy.init_node('ball_predictor_node', anonymous=True)
 
         # Initialize arrays to store position data as NumPy arrays
@@ -34,6 +34,9 @@ class BallPredictorNode:
         # Define the final x value
         self.x_f = 0.4
 
+        # Minimum number of data points required for prediction
+        self.min_data_points = min_data_points
+
     def position_callback(self, data):
         # Update arrays with new position data
         self.x_data = np.append(self.x_data, data.x)
@@ -44,9 +47,11 @@ class BallPredictorNode:
         self.scatter.set_offsets(np.column_stack((self.x_data, self.y_data, self.z_data)))
         self.ax.figure.canvas.draw()
 
-        # Predict and publish final position
-        final_position = self.predict_final_position()
-        self.final_position_publisher.publish(final_position)
+        # Check if there are enough data points for prediction
+        if len(self.x_data) >= self.min_data_points:
+            # Predict and publish final position
+            final_position = self.predict_final_position()
+            self.final_position_publisher.publish(final_position)
 
     def predict_final_position(self):
         # Fit a linear curve to the current position data (X vs. Y)
