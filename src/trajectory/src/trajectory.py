@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import rospy
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, PoseStamped
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -17,8 +17,8 @@ class BallPredictorNode:
         # Subscribe to the "ball_position" topic
         rospy.Subscriber('ball_position', Point, self.position_callback)
 
-        # Create a publisher for the "final_position" topic
-        self.final_position_publisher = rospy.Publisher('final_position', Point, queue_size=10)
+        # Create a publisher for the "arm_goal" topic
+        self.arm_goal_publisher = rospy.Publisher('arm_goal', PoseStamped, queue_size=10)
 
         # Initialize the plot
         plt.ion()  # Turn on interactive mode
@@ -49,9 +49,9 @@ class BallPredictorNode:
 
         # Check if there are enough data points for prediction
         if len(self.x_data) >= self.min_data_points:
-            # Predict and publish final position
-            final_position = self.predict_final_position()
-            self.final_position_publisher.publish(final_position)
+            # Predict and publish final position as an arm goal
+            arm_goal = self.predict_final_position()
+            self.arm_goal_publisher.publish(arm_goal)
 
     def predict_final_position(self):
         # Fit a linear curve to the current position data (X vs. Y)
@@ -66,6 +66,17 @@ class BallPredictorNode:
         # Use the quadratic equation to predict z at the final x value
         predicted_z = np.polyval(quadratic_coefficients, self.x_f)
 
+        # Create a PoseStamped message for the arm goal
+        arm_goal = PoseStamped()
+        arm_goal.header.stamp = rospy.Time.now()
+        arm_goal.pose.position.x = self.x_f
+        arm_goal.pose.position.y = predicted_y
+        arm_goal.pose.position.z = predicted_z
+        arm_goal.pose.orientation.x = 0.0
+        arm_goal.pose.orientation.y = -1.0
+        arm_goal.pose.orientation.z = 0.0
+        arm_goal.pose.orientation.w = 0.0
+
         # Update the prediction line in the plot
         x_vals = np.linspace(min(self.x_data), max(self.x_data), 100)
         y_vals = np.polyval(linear_coefficients, x_vals)
@@ -73,13 +84,7 @@ class BallPredictorNode:
         self.prediction_line.set_data(x_vals, y_vals)
         self.prediction_line.set_3d_properties(z_vals)
 
-        # Create a Point message for the final position
-        final_position = Point()
-        final_position.x = self.x_f
-        final_position.y = predicted_y
-        final_position.z = predicted_z
-
-        return final_position
+        return arm_goal
 
     def run(self):
         rospy.spin()
