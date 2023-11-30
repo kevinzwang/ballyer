@@ -10,6 +10,10 @@ import cv2
 import numpy as np
 import pyrealsense2 as rs
 
+
+import rospy
+from geometry_msgs.msg import Point
+
 # for sliders
 def nothing(x):
     pass
@@ -106,7 +110,7 @@ def convert_image_to_world(camera_parameters, coords_image):
     
 
 # detects and tracks the ball, and streams the x, y, z in world coords
-def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, draw_type='circle'):
+def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, ball_pub, draw_type='circle'):
     
     # Tracking if needed
     # tracker = cv2.TrackerCSRT_create()
@@ -191,7 +195,18 @@ def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camer
             x_world, y_world, z_world = convert_image_to_world(camera_parameters, coords_image)
             # print(f'x world: {x_world}, y world: {y_world}, z world: {z_world}')
             print(f'X: {x_world}, Y: {y_world}, Z: {z_world}')
-
+        
+        
+        # ROS publish
+        
+        if not (any(coords_image.values()) is None):
+                x_world, y_world, z_world = convert_image_to_world(camera_parameters, coords_image)
+                point_msg = Point()
+                point_msg.x = x_world
+                point_msg.y = y_world
+                point_msg.z = z_world
+                ball_pub.publish(point_msg) 
+                
         # Exit the loop on 'q' key press
         if cv2.waitKey(1) & 0xFF == ord('q'):
             cv2.destroyAllWindows()
@@ -199,6 +214,11 @@ def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camer
     
 
 def main():
+    
+    # ROS Stuff
+    rospy.init_node('ball_tracker', anonymous=True)
+    ball_pub = rospy.Publisher('ball_position', Point, queue_size=10)
+    
     
     ## Camera comp
     # cap = cv2.VideoCapture(1)
@@ -227,7 +247,7 @@ def main():
 
     # Ball Detection. Press q to quit windows. If frozen, restart your kernal. 
     coords_image = {'x': None, 'y': None, 'z': None}
-    detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image)
+    detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, ball_pub)
         
     
     # Clean up
