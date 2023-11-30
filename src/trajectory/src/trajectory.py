@@ -69,13 +69,13 @@ class BallPredictorNode:
         # Create a PoseStamped message for the arm goal
         arm_goal = PoseStamped()
         arm_goal.header.stamp = rospy.Time.now()
-        arm_goal.pose.position.x = self.x_f
-        arm_goal.pose.position.y = predicted_y
-        arm_goal.pose.position.z = predicted_z
+        arm_goal.pose.position.x = self.x_f - 0.0381 //x offset
+        arm_goal.pose.position.y = predicted_y 
+        arm_goal.pose.position.z = predicted_z - 0.1143 //z offset
         arm_goal.pose.orientation.x = 0.0
-        arm_goal.pose.orientation.y = -1.0
+        arm_goal.pose.orientation.y = 0.707
         arm_goal.pose.orientation.z = 0.0
-        arm_goal.pose.orientation.w = 0.0
+        arm_goal.pose.orientation.w = 0.707
 
         # Update the prediction line in the plot
         x_vals = np.linspace(min(self.x_data), max(self.x_data), 100)
