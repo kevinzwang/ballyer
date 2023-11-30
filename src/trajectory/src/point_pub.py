@@ -9,7 +9,7 @@ def get_user_input():
             # Ask the user for input in the terminal
             # Ex: Enter ball position (format: x,y,z): 1.0,2.5,3.2
           
-            user_input = raw_input("Enter ball position (format: x,y,z): ")
+            user_input = input("Enter ball position (format: x,y,z): ")
 
             # Parse user input string and extract x, y, z values
             x, y, z = map(float, user_input.split(','))

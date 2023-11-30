@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class BallPredictorNode:
-    def __init__(self, min_data_points=3, x_f=0.4):
+    def __init__(self, min_data_points=3, x_f=0.6):
         rospy.init_node('ball_predictor_node', anonymous=True)
 
         # Initialize arrays to store position data as NumPy arrays
@@ -21,16 +21,16 @@ class BallPredictorNode:
         self.arm_goal_publisher = rospy.Publisher('arm_goal', PoseStamped, queue_size=10)
 
         # Initialize the plot
-        plt.ion()  # Turn on interactive mode
+        '''
         self.fig, self.ax = plt.subplots()
         self.ax.set_xlabel('X')
         self.ax.set_ylabel('Y')
-        self.ax.set_zlabel('Z')
         self.ax.set_title('Ball Trajectory Prediction')
-        self.scatter = self.ax.scatter([], [], [], label='Real Position')
-        self.prediction_line, = self.ax.plot([], [], [], label='Trajectory Prediction')
+        self.scatter = self.ax.scatter([], [], label='Real Position')
+        self.prediction_line, = self.ax.plot([], [], label='Trajectory Prediction')
         self.ax.legend()
-
+        
+        '''
         # Define the final x value
         self.x_f = x_f
 
@@ -43,15 +43,31 @@ class BallPredictorNode:
         self.y_data = np.append(self.y_data, data.y)
         self.z_data = np.append(self.z_data, data.z)
 
-        # Update the plot
-        self.scatter.set_offsets(np.column_stack((self.x_data, self.y_data, self.z_data)))
-        self.ax.figure.canvas.draw()
-
         # Check if there are enough data points for prediction
         if len(self.x_data) >= self.min_data_points:
             # Predict and publish final position as an arm goal
             arm_goal = self.predict_final_position()
             self.arm_goal_publisher.publish(arm_goal)
+            print(arm_goal)
+
+            # Clear and redraw the entire plot
+            # self.ax.clear()
+            ''' 
+            self.ax.set_xlabel('X')
+            self.ax.set_ylabel('Y')
+            self.ax.set_title('Ball Trajectory Prediction')
+            self.scatter = self.ax.scatter(self.x_data, self.y_data, self.z_data, label='Real Position')
+            self.prediction_line, = self.ax.plot([], [], label='Trajectory Prediction')
+            self.ax.legend()
+            '''
+            # Update the prediction line in the plot
+            x_vals = np.linspace(min(self.x_data), max(self.x_data), 100)
+            y_vals = np.polyval(np.polyfit(self.x_data, self.y_data, 1), x_vals)
+            z_vals = np.polyval(np.polyfit(self.x_data, self.z_data, 2), x_vals)
+            #self.prediction_line.set_data(x_vals, y_vals)
+
+            # Draw the updated plot
+            #self.fig.canvas.draw_idle()
 
     def predict_final_position(self):
         # Fit a linear curve to the current position data (X vs. Y)
@@ -69,20 +85,13 @@ class BallPredictorNode:
         # Create a PoseStamped message for the arm goal
         arm_goal = PoseStamped()
         arm_goal.header.stamp = rospy.Time.now()
-        arm_goal.pose.position.x = self.x_f - 0.0381 //x offset
+        arm_goal.pose.position.x = self.x_f - 0.0381  # x offset
         arm_goal.pose.position.y = predicted_y 
-        arm_goal.pose.position.z = predicted_z - 0.1143 //z offset
+        arm_goal.pose.position.z = predicted_z - 0.1143  # z offset
         arm_goal.pose.orientation.x = 0.0
         arm_goal.pose.orientation.y = 0.707
         arm_goal.pose.orientation.z = 0.0
         arm_goal.pose.orientation.w = 0.707
-
-        # Update the prediction line in the plot
-        x_vals = np.linspace(min(self.x_data), max(self.x_data), 100)
-        y_vals = np.polyval(linear_coefficients, x_vals)
-        z_vals = np.polyval(quadratic_coefficients, x_vals)
-        self.prediction_line.set_data(x_vals, y_vals)
-        self.prediction_line.set_3d_properties(z_vals)
 
         return arm_goal
 
@@ -91,7 +100,7 @@ class BallPredictorNode:
 
 if __name__ == '__main__':
     try:
-        predictor_node = BallPredictorNode(min_data_points=3, x_f=0.4)
+        predictor_node = BallPredictorNode(min_data_points=3, x_f=0.6)
         predictor_node.run()
     except rospy.ROSInterruptException:
         pass
