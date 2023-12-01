@@ -60,6 +60,9 @@ class BallPredictorNode:
             z = np.polyval(z_coeff, x)
             
             ax.plot(x, y, z)
+            ax.plot(self.x, self.y, self.z, 'ro', label='data')
+            ax.plot(self.x_f, y_f, z_f, 'go', label='goal')
+            
             ax.legend()
             
             plt.show()
