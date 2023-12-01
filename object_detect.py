@@ -11,15 +11,39 @@ import numpy as np
 import pyrealsense2 as rs
 
 
-import rospy
-from geometry_msgs.msg import Point
+# IMPORTS FOR ROS
+### UNCOMMENT THIS TO USE ROS
+# import rospy
+# from geometry_msgs.msg import Point
+# from sensor_msgs.msg import Image
 
-# for sliders
+# IMPORTS FOR ARUCO
+import cv2.aruco as aruco
+import matplotlib.pyplot as plt
+
+
+
+
+
+################ HSV SETTING SECTION ################ 
+
+
+# needed for sliders
 def nothing(x):
     pass
 
-### SET THE HSV with sliders if needed
+
+
 def set_color_range(pipeline):
+    
+    """
+    SETS THE HSV with sliders if needed.
+    
+    The orange of the ball has a high value for the first slider and a low value for the second slider.
+    This is because the hsv of orange wraps around the color spectrum. 
+    
+    Aim for the masking to be white circle with little noise. 
+    """
 
     # Windows
     cv2.namedWindow("Original Frame")
@@ -83,13 +107,176 @@ def set_color_range(pipeline):
         if cv2.waitKey(1) & 0xFF == ord('q'):
             cv2.destroyAllWindows()
             return h_min, h_max, s_min, s_max, v_min, v_max
-        
-        
-        
-### DETECTION SECTION
 
-# finds the center of the ball
+
+
+
+
+
+################ ARUCO SECTION ################ 
+
+
+def make_aruco():
+    
+    """
+    Creates ARUCO from the predefined dictionary. Saves to SVG file. 
+    """
+    
+    # # Define the ArUco dictionary
+    aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
+    
+    # Generate the marker
+    marker_size_pixels = 1000  # High resolution for the marker image
+    marker_id = 2
+    marker_image = aruco.generateImageMarker(aruco_dict, marker_id, marker_size_pixels)
+    
+    # # Display the marker using matplotlib
+    plt.imshow(marker_image, cmap='gray')
+    plt.axis('off')  # Turn off axis numbers and labels
+    
+    # Save as SVG
+    svg_filename = 'aruco_marker_v2.svg'
+    plt.savefig(svg_filename, format='svg', bbox_inches='tight', pad_inches=0, dpi=300)
+    plt.close()
+    
+    
+
+def aruco_to_camera(rvec, tvec, aruco_G):
+    
+    """
+    Uses the pose of the aruco and known aruco position to get the world coordinates of the camera.
+    rvec and tvec come from aruco_detection and are OpenCV's way of passing in the aruco pose. 
+    We use rodrigues to convert it to a matrix.
+    The transpose of the aruco pose and the known position of the Aruco are used to find
+    the camera in the world frame. 
+    """
+    
+    # Get R and t from G transformation
+    aruco_R = aruco_G[:3, :3]
+    aruco_t = aruco_G[:3, 3]
+    
+    # Convert rotation pose vector to rotation matrix. Just opencv stuff.  
+    aruco_R_pose, _ = cv2.Rodrigues(rvec)
+    
+    # This converts the pose of the aruco to the camera pose
+    aruco_R_pose_inv = aruco_R_pose.T
+    aruco_pose_t_inv = -np.dot(aruco_R_pose_inv, tvec)
+    
+    # Using this pose and the known aruco R and t, we get camera world position
+    camera_world_position = aruco_R @ aruco_pose_t_inv + aruco_t
+    
+    return camera_world_position
+
+
+def detect_aruco(pipeline, align, camera_parameters, aruco_G, marker_length):
+    
+    """
+    This detects the aruco using the camera and returns the cameras position in the world frame. 
+    Press 'q' after satisfied with detection. 
+    """
+    
+    camera_world_position = None
+
+    while True:
+        # Start streaming
+        frames = pipeline.wait_for_frames()
+        aligned_frames = align.process(frames)
+        depth_frame = frames.get_depth_frame()
+        color_frame = aligned_frames.get_color_frame()
+        width = depth_frame.get_width()
+        height = depth_frame.get_height()
+
+        color_image = np.asanyarray(color_frame.get_data())
+        gray_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+    
+        # Define the ArUco dictionary
+        aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
+        parameters =  cv2.aruco.DetectorParameters()
+    
+        # Convert RealSense camera parameters to OpenCV camera matrix format
+        camera_matrix = np.array([[camera_parameters.fx, 0, camera_parameters.ppx],
+                                  [0, camera_parameters.fy, camera_parameters.ppy],
+                                  [0, 0, 1]], dtype=np.float32)
+        dist_coeffs = np.zeros((5, 1))  # Assuming no distortion
+    
+        # Detect ArUco marker
+        corners, ids, rejectedCandidates = aruco.detectMarkers(gray_image, aruco_dict, parameters=parameters)
+    
+        if ids is not None:
+            # Estimate pose of the ArUco marker
+            rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist_coeffs)
+            aruco.drawDetectedMarkers(color_image, corners, ids)
+            
+            # Draw a box around the first detected marker
+            first_marker_corners = corners[0].reshape(-1, 2)
+            cv2.polylines(color_image, [first_marker_corners.astype(np.int32)], True, (0, 255, 0), 2)
+            
+            # Calculate the position of the marker in the image
+            marker_position = np.mean(first_marker_corners, axis=0)
+            
+            # Get the world position of the camera
+            camera_world_position = aruco_to_camera(rvecs[0][0], tvecs[0][0], aruco_G)
+            
+            # Calculate distances
+            distance_to_marker = np.linalg.norm(tvecs[0][0])
+            distance_to_robot_base = np.linalg.norm(camera_world_position - aruco_G[:3, 3])
+            
+            # This is using the realsense depth sensor to compare. 
+            depth =  depth_frame.get_distance(marker_position[0],marker_position[1])
+
+            # Text on image setting
+            text_color = (0,0,0)
+            bg_color = (255,255,255)
+            text_pos = (10, color_image.shape[0] - 30)  # Adjust the y-coordinate as needed
+            font_scale=0.4
+            thickness=1
+            
+            # Rectangle for behind text
+            text = f"Dist to Robot Base: {distance_to_robot_base:.2f}m"
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
+            x, y = text_pos
+            bg_start = (x - text_size[1] - 5, y - text_size[1] - 100)
+            bg_end = (x + text_size[0] + 65, y + 10)
+            cv2.rectangle(color_image, bg_start, bg_end, bg_color, cv2.FILLED)
+
+
+            # Displays the text on the image
+            # cv2.putText(color_image, f"Marker Pos Camera: {np.array2string(marker_position, precision=2)}", 
+            #             (text_pos[0], text_pos[1]), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness)
+            cv2.putText(color_image, f"Camera Dist to Marker: {distance_to_marker:.2f}m", 
+                        (text_pos[0], text_pos[1]-30), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness)
+            cv2.putText(color_image, f"qDepth Sensor to Marker: {depth:.2f}m", 
+                        (text_pos[0], text_pos[1]-60), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness)
+            cv2.putText(color_image, f"Camera World: {np.array2string(camera_world_position, precision=2, separator=', ')}", 
+                        (text_pos[0], text_pos[1]-90), cv2.FONT_HERSHEY_SIMPLEX, font_scale - .05, text_color, thickness)
+            
+            # print("Marker Position in Camera coordinates:", marker_position)
+            # print("Camera World Position:", np.array2string(camera_world_position, separator=', '))
+            
+        # Show the image with the detected marker and box
+        cv2.imshow("ArUco", color_image)
+        
+        # press q once you are satified with detection of camera and aruco.
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
+            break
+
+    return camera_world_position
+        
+
+
+
+
+################ BALL DETECTION SECTION ################ 
+
+
+
 def find_center(contour):
+    
+    """
+    Finds the center of the ball using it's biggest contour'
+    """
     
     M = cv2.moments(contour)
     if M["m00"] != 0:
@@ -100,8 +287,10 @@ def find_center(contour):
         
     return cX, cY
 
-# convert the image to world coords
+
 def convert_image_to_world(camera_parameters, coords_image):
+    
+
     x_world = (coords_image['x']- camera_parameters.ppx) * coords_image['z'] / camera_parameters.fx
     y_world= (coords_image['y'] - camera_parameters.ppy) * coords_image['z'] / camera_parameters.fy
     z_world = coords_image['z']
@@ -109,20 +298,41 @@ def convert_image_to_world(camera_parameters, coords_image):
     return x_world, y_world, z_world
     
 
-# detects and tracks the ball, and streams the x, y, z in world coords
-def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, ball_pub, draw_type='circle'):
+
+def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, ball_position_pub, draw_type='circle'):
     
+    """
+    Detects the ball and streams to ROS topic 
+    """
     # Tracking if needed
     # tracker = cv2.TrackerCSRT_create()
     # tracking = False
+    
+    
+    # TEXT SETTINGS
+    # Rectangle for behind text
+    text = "Depth: 0.00m"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = .5
+    thickness = 1
+    text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
+    
+    # Set colors
+    text_color = (0,0,0)
+    circle_color = (255,0,0)
+    bg_color = (255,255,255)
 
+
+    # Store the coords_image dictionary.
+    coords_image = {'x': None, 'y': None, 'z': None}
+    
     while True:
         
         # Camera frame and alignment
         frames = pipeline.wait_for_frames()
-        alligned_frames = align.process(frames)
+        aligned_frames = align.process(frames)
         depth_frame = frames.get_depth_frame()
-        color_frame = alligned_frames.get_color_frame()
+        color_frame = aligned_frames.get_color_frame()
         width = depth_frame.get_width()
         height = depth_frame.get_height()
         
@@ -167,22 +377,33 @@ def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camer
                 depth =  depth_frame.get_distance(coords_image['x'], coords_image['y'])
                 coords_image['z'] = depth
                 
-    
+                
                 # Draw the circle and center
-                cv2.circle(color_image, center, radius, (255, 0, 0), 2)
-                cv2.circle(color_image, center, 5, (0, 255, 255), -1)
+                cv2.circle(color_image, center, radius, circle_color, 2)
+                cv2.circle(color_image, center, 5, circle_color, -1)
                 
-                # Draw coords_image of center
+                # Draw coords_image of circle center over a rectangle
                 coord_text = f"({center[0]}, {center[1]})"
-                cv2.putText(color_image, coord_text, (center[0] + 10, center[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                coord_pos =  (center[0] + 10, center[1] - 10)
+                x, y = coord_pos
+                bg_start = (x, y - text_size[1] - 5)
+                bg_end = (x + text_size[0] + 5, y + 5)
+                cv2.rectangle(color_image, bg_start, bg_end, bg_color, cv2.FILLED)
+                cv2.putText(color_image, coord_text, coord_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
                 
-                # Draw the depth value on the frame
+                # Draw the depth value on the frame over a rectangle
                 depth_text = f"Depth: {depth:.2f}m"
-                cv2.putText(color_image, depth_text, (center[0] + 10, center[1] + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-        
-        
-        ## See the contours
+                depth_pos =  (center[0] + 10, center[1] + 30)
+                x, y = depth_pos
+                bg_start = (x, y - text_size[1] - 5)
+                bg_end = (x + text_size[0] + 5, y + 5)
+                cv2.rectangle(color_image, bg_start, bg_end, bg_color, cv2.FILLED)
+                cv2.putText(color_image, depth_text, depth_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
+                
+
+        ## Uncomment this to see the contours.
         # cv2.drawContours(color_image, contours, -1, (0,255,0), 3)
+
 
         cv2.imshow("Detected Ball", color_image)
         
@@ -197,15 +418,16 @@ def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camer
             print(f'X: {x_world}, Y: {y_world}, Z: {z_world}')
         
         
-        # ROS publish
         
-        if not (any(coords_image.values()) is None):
-                x_world, y_world, z_world = convert_image_to_world(camera_parameters, coords_image)
-                point_msg = Point()
-                point_msg.x = x_world
-                point_msg.y = y_world
-                point_msg.z = z_world
-                ball_pub.publish(point_msg) 
+        ### UNCOMMENT THIS TO USE ROS 
+        # # ROS publish to ball_position
+        # if not (any(coords_image.values()) is None):
+        #         x_world, y_world, z_world = convert_image_to_world(camera_parameters, coords_image)
+        #         point_msg = Point()
+        #         point_msg.x = x_world
+        #         point_msg.y = y_world
+        #         point_msg.z = z_world
+        #         ball_position_pub.publish(point_msg) 
                 
         # Exit the loop on 'q' key press
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -215,21 +437,42 @@ def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camer
 
 def main():
     
-    # ROS Stuff
-    rospy.init_node('ball_tracker', anonymous=True)
-    ball_pub = rospy.Publisher('ball_position', Point, queue_size=10)
+    """
+    
+    NOTES:
+    
+    To run set the aruco_G, marker_length for the aruco after measuring.
+    Find with '### CHANGE THIS AFTER YOU MEASURE!'
+    
+    Uncomment ROS imports, publishers in main and publisher in detect_ball. 
+    Find with '### UNCOMMENT THIS TO USE ROS'
+    
+    Press q after detecting aruco.
+    
+    Press q to quit ball detection loop.
+    
+    If your window gets stuck or error, just restart kernel to fix. 
+    
+    ignore the warnings for now. Just due to window and opencv, will fix later. 
+    QObject::moveToThread: Current thread (0x56547c828280) is not the object's thread (0x56547ab43910).
+    Cannot move to target thread (0x56547c828280)
+    
+    """
     
     
-    ## Camera comp
+    ## Built in web camera 
     # cap = cv2.VideoCapture(1)
     
-    # realsense
+    ################ REALSENSE CALIBRATION ################ 
+
+    # Start the pipeline and config the frame rate, resolution, etc
     pipeline = rs.pipeline()
     config = rs.config()
     config.enable_stream(rs.stream.depth)
     config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
     pipeline.start(config)
     
+    # Align the image
     align_to = rs.stream.color
     align = rs.align(align_to)
     
@@ -239,23 +482,74 @@ def main():
     camera_parameters = depth_profile.get_intrinsics()
 
 
-    ## Sliders to set HSV color range
+    ################ HSV CALIBRATION ################ 
+
+    ## Use sliders to set HSV color range. Use this if color of ball not detected. 
     # h_min, h_max, s_min, s_max, v_min, v_max = set_color_range(pipeline)
     # print(f"{h_min}, {h_max}, {s_min}, {s_max}, {v_min}, {v_max}")
     
     h_min, h_max, s_min, s_max, v_min, v_max = 158, 10, 147, 255, 91, 255
-
-    # Ball Detection. Press q to quit windows. If frozen, restart your kernal. 
-    coords_image = {'x': None, 'y': None, 'z': None}
-    detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, ball_pub)
-        
     
-    # Clean up
+    
+    
+    
+    ################ ARUCO CALIBRATION ################ 
+    
+    ## Make new aruco if needed
+    # make_aruco() 
+ 
+    ### CHANGE THIS AFTER YOU MEASURE!
+    # Measure the aruco's position and set this G = [[R, t],[0, 0, 0, 1]]  
+    # Known aruco_G compared to robot base frame. Change this to known aruco position!
+    aruco_G = np.array([[1, 0, 0, 0], 
+                       [0, 1, 0, 0], 
+                       [0, 0, 1, 0], 
+                       [0, 0, 0, 1]])
+    
+    ### CHANGE THIS AFTER YOU MEASURE!
+    # Set to width of aruco in meters. Measure world aruco after printing on paper. 
+    marker_length= 0.068 
+
+    # Get the camera in the world frame
+    camera_world_position = detect_aruco(pipeline, align, camera_parameters, aruco_G, marker_length)
+    print("Camera World Position:", np.array2string(camera_world_position, separator=', '))
+    
+    
+    
+    ### UNCOMMENT THIS TO USE ROS 
+    # # Publish camera position to ROS topic camera_position
+    # rospy.init_node('camera_position', anonymous=True)
+    # camera_position_pub = rospy.Publisher('camera_position', Point, queue_size=10)
+    # camera_position_msg = Point()
+    # camera_position_msg.x = x_world
+    # camera_position_msg.y = y_world
+    # camera_position_msg.z = z_world
+    # camera_position_pub.publish(camera_position_msg) 
+
+
+
+    ################ BALL DETECTION ################ 
+    
+    # Ball Detection. Press q to quit windows. If frozen, restart your kernal. 
+    
+    ### UNCOMMENT THIS TO USE ROS. IN DETECT BALL ALSO NEED TO UNCOMMENT ROS 
+    # Set up ROS topic ball_position. This is passed into detect_ball function, because it streams.
+    # rospy.init_node('ball_position', anonymous=True)
+    # ball_position_pub = rospy.Publisher('ball_position', Point, queue_size=10)
+    
+    detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, ball_position_pub=None)
+    
+    
+
+    ################ CLEAN UP CAMERA ################ 
+
     # cap.release()
+    
     pipeline.stop()
     cv2.destroyAllWindows()
-
     
+
+
 if __name__ == "__main__":
     main()
 
