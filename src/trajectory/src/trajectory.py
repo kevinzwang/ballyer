@@ -4,6 +4,8 @@ import rospy
 from geometry_msgs.msg import Point, PoseStamped
 import numpy as np
 import matplotlib.pyplot as plt
+from std_msgs.msg import Header
+
 
 class BallPredictorNode:
     def __init__(self, min_data_points=3, x_f=0.6, plot_interval=None):
@@ -19,7 +21,7 @@ class BallPredictorNode:
 
         rospy.Subscriber('ball_position', Point, self.position_callback)
 
-        self.arm_goal_publisher = rospy.Publisher('arm_goal', PoseStamped)
+        self.arm_goal_publisher = rospy.Publisher('arm_goal', PoseStamped, queue_size=1)
         
     def position_callback(self, data):
         self.x.append(data.x)
@@ -30,7 +32,7 @@ class BallPredictorNode:
             x_f, y_f, z_f = self.predict_final_position()
             
             arm_goal = PoseStamped()
-            arm_goal.header.stamp = rospy.Time.now()
+            arm_goal.header = Header(stamp=rospy.Time.now(), frame_id='base')
             arm_goal.pose.position.x = x_f - 0.0381  # x offset
             arm_goal.pose.position.y = y_f
             arm_goal.pose.position.z = z_f - 0.1143  # z offset
@@ -42,7 +44,7 @@ class BallPredictorNode:
             self.arm_goal_publisher.publish(arm_goal)
             print(arm_goal)
 
-    def predict_final_position(self):
+    def predict_final_position(self, plot=False):
         # y is a linear function of x
         y_coeff = np.polyfit(self.x, self.y, 1)
         
@@ -52,7 +54,7 @@ class BallPredictorNode:
         y_f = np.polyval(y_coeff, self.x_f)
         z_f = np.polyval(z_coeff, self.x_f)
         
-        if self.plot_interval is not None and (len(self.x) - self.min_data_points) % self.plot_interval == 0:
+        if plot:
             ax = plt.figure().add_subplot(projection='3d')
             
             x = np.linspace(self.x[0], self.x_f, 100)
@@ -66,11 +68,22 @@ class BallPredictorNode:
             ax.legend()
             
             plt.show()
+            print("should show plot")
         
         return (self.x_f, y_f, z_f)
         
     def run(self):
-        rospy.spin()
+        r = rospy.Rate(10)
+
+        last_plot_time = 0
+        while not rospy.is_shutdown():
+            t = rospy.get_time()
+            if len(self.x) >= self.min_data_points:
+                if self.plot_interval is not None and last_plot_time + self.plot_interval <= t:
+                    self.predict_final_position(plot=True)
+                    last_plot_time = t
+            r.sleep()
+            
 
 if __name__ == '__main__':
     try:
