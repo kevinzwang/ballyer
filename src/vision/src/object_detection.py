@@ -160,11 +160,10 @@ def aruco_to_camera(rvec, tvec, aruco_G):
     # This converts the pose of the aruco to the camera pose
     aruco_R_pose_inv = aruco_R_pose.T
     aruco_pose_t_inv = -np.dot(aruco_R_pose_inv, tvec)
-    
     # Using this pose and the known aruco R and t, we get camera world position
     camera_world_position = aruco_R @ aruco_pose_t_inv + aruco_t
-    
-    return camera_world_position
+
+    return camera_world_position, aruco_R_pose_inv
 
 
 def detect_aruco(pipeline, align, camera_parameters, aruco_G, marker_length):
@@ -216,7 +215,7 @@ def detect_aruco(pipeline, align, camera_parameters, aruco_G, marker_length):
             marker_position = np.mean(first_marker_corners, axis=0)
             
             # Get the world position of the camera
-            camera_world_position = aruco_to_camera(rvecs[0][0], tvecs[0][0], aruco_G)
+            camera_world_position, aruco_pose_t_inv = aruco_to_camera(rvecs[0][0], tvecs[0][0], aruco_G)
             
             # Calculate distances
             distance_to_marker = np.linalg.norm(tvecs[0][0])
@@ -263,7 +262,7 @@ def detect_aruco(pipeline, align, camera_parameters, aruco_G, marker_length):
             cv2.destroyAllWindows()
             break
 
-    return camera_world_position
+    return camera_world_position, aruco_pose_t_inv
         
 
 
@@ -300,7 +299,7 @@ def convert_image_to_world(camera_parameters, coords_image):
     
 
 
-def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, ball_position_pub, draw_type='circle'):
+def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, ball_position_pub, aruco_pose_t_inv, draw_type='circle'):
     
     """
     Detects the ball and streams to ROS topic 
@@ -336,7 +335,7 @@ def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camer
         
         # get the color image and blur it
         color_image = np.asanyarray(color_frame.get_data())
-        color_image = cv2.GaussianBlur(color_image, (11, 11), 0)
+        # color_image = cv2.GaussianBlur(color_image, (11, 11), 0)
 
         # get the hsv for the color image for mask
         hsv = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
@@ -370,10 +369,20 @@ def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camer
                 (x, y), radius = cv2.minEnclosingCircle(contour)
                 center = (int(x), int(y))
                 radius = int(radius)
+                print("rad ball: ", radius)
+                
+                coords_image['z'] = 0
+                if radius != 0:
+                    coords_image['z'] = 40/radius
+                depth = coords_image['z']
+                
+                print("Depth in inch: ", depth *.0254)
+
                 coords_image['x'] = min(max(center[0], 0), width - 1)
                 coords_image['y'] = min(max(center[1], 0), height - 1)
-                depth =  depth_frame.get_distance(coords_image['x'], coords_image['y'])
-                coords_image['z'] = depth
+                # depth =  depth_frame.get_distance(coords_image['x'], coords_image['y'])
+
+                # coords_image['z'] = depth
                 
                 
                 # Draw the circle and center
@@ -413,11 +422,32 @@ def detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camer
         if not (any([v is None for v in coords_image.values()])):
             # output the coords_image here
             x, y, z = coords_image['x'], coords_image['y'], coords_image['z']
+            coord = np.array([x,y,z])
+            print(coord)
+            print(aruco_pose_t_inv)
+            print("aruco_pose_t_inv.T", aruco_pose_t_inv.T)
+            aruco_calc = aruco_pose_t_inv.T @ coord
+            aruco_trans = {'x': None, 'y': None, 'z': None}
+    
+            aruco_trans['x'] = aruco_calc[0]
+            aruco_trans['y'] = aruco_calc[0]
+            aruco_trans['z'] = aruco_calc[0]
+
+            print("aruco_trans: " , aruco_trans)
+            aruco_x_world, aruco_y_world, aruco_z_world = convert_image_to_world(camera_parameters, aruco_trans)
+            print(f'aruco_trans_X: {aruco_x_world}, aruco_trans_Y: {aruco_y_world}, aruco_trans_Z: {aruco_z_world}')
+        
+        
+
             print(f"x: {x}, y: {y}, z: {z}")
             x_world, y_world, z_world = convert_image_to_world(camera_parameters, coords_image)
+    
+            # coord = np.array([x_world,y_world, z_world])
+            # aruco_trans = aruco_pose_t_inv.T @ coord
 
             # print(f'x world: {x_world}, y world: {y_world}, z world: {z_world}')
             print(f'X: {x_world}, Y: {y_world}, Z: {z_world}')
+            # print(f'aruco_trans_X: {aruco_trans[0]}, aruco_trans_Y: {aruco_trans[1]}, aruco_trans_Z: {aruco_trans[2]}')
         
         
         
@@ -504,45 +534,50 @@ def main():
     ### CHANGE THIS AFTER YOU MEASURE!
     # Measure the aruco's position and set this G = [[R, t],[0, 0, 0, 1]]  
     # Known aruco_G compared to robot base frame. Change this to known aruco position!
-    aruco_G = np.array([[1, 0, 0, 0.13335], 
-                       [0, 1, 0, 0], 
-                       [0, 0, 1, -0.1143], 
+    aruco_G = np.array([[0, 0, 1, 0.13335], 
+                       [1, 0, 0, 0], 
+                       [0, 1, 0, -0.1143], 
                        [0, 0, 0, 1]])
+    # aruco_G = np.array([[1, 0, 0, 0], 
+    #                    [0, 1, 0, 0], 
+    #                    [0, 0, 1, 0], 
+    #                    [0, 0, 0, 1]])
     
-    ### CHANGE THIS AFTER YOU MEASURE!
-    # Set to width of aruco in meters. Measure world aruco after printing on paper. 
-    marker_length= 0.137
-    # Get the camera in the world frame
-    camera_world_position = detect_aruco(pipeline, align, camera_parameters, aruco_G, marker_length)
+    # ### CHANGE THIS AFTER YOU MEASURE!
+    # # Set to width of aruco in meters. Measure world aruco after printing on paper. 
+    marker_length= 0.18
+    # # Get the camera in the world frame
+    camera_world_position, aruco_pose_t_inv = detect_aruco(pipeline, align, camera_parameters, aruco_G, marker_length)
+    camera_world_position = camera_world_position
     print("Camera World Position:", np.array2string(camera_world_position, separator=', '))
     
     
     
     # ### UNCOMMENT THIS TO USE ROS 
-    # # # Publish camera position to ROS topic camera_position
-    # rospy.init_node('camera_tracking', anonymous=True)
-    # camera_position_pub = rospy.Publisher('camera_position', Point, queue_size=10)
-    # camera_position_msg = Point()
-    # camera_position_msg.x = camera_world_position[0]
-    # camera_position_msg.y = camera_world_position[1]
-    # camera_position_msg.z = camera_world_position[2]
-    # camera_position_pub.publish(camera_position_msg) 
+    # # Publish camera position to ROS topic camera_position
+    rospy.init_node('camera_tracking', anonymous=True)
+    camera_position_pub = rospy.Publisher('camera_position', Point, queue_size=10)
+    camera_position_msg = Point()
+    camera_position_msg.x = camera_world_position[0]
+    camera_position_msg.y = camera_world_position[1]
+    camera_position_msg.z = camera_world_position[2]
+    camera_position_pub.publish(camera_position_msg) 
 
     # ################ BALL DETECTION ################ 
     
-    # Ball Detection. Press q to quit windows. If frozen, restart your kernal. 
+    #Ball Detection. Press q to quit windows. If frozen, restart your kernal. 
     
-    ### UNCOMMENT THIS TO USE ROS. IN DETECT BALL ALSO NEED TO UNCOMMENT ROS 
-    # Set up ROS topic ball_position. This is passed into detect_ball function, because it streams.
+    ## UNCOMMENT THIS TO USE ROS. IN DETECT BALL ALSO NEED TO UNCOMMENT ROS 
+    #Set up ROS topic ball_position. This is passed into detect_ball function, because it streams.
 
-    # ball_position_pub = rospy.Publisher('ball_position', Point, queue_size=10)
+    ball_position_pub = rospy.Publisher('ball_position', Point, queue_size=10)
 
 
     # # Store the coords_image dictionary.
-    # coords_image = {'x': None, 'y': None, 'z': None}
+    coords_image = {'x': None, 'y': None, 'z': None}
     
     
-    # detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, ball_position_pub)
+    detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, ball_position_pub, aruco_pose_t_inv)
     
     
 
