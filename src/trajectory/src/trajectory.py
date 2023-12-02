@@ -23,10 +23,19 @@ class BallPredictorNode:
 
         self.arm_goal_publisher = rospy.Publisher('arm_goal', PoseStamped, queue_size=1)
         
+        self.ball_last_seen = 0
+        
     def position_callback(self, data):
+        if self.ball_last_seen + 10 < rospy.get_time():
+            rospy.loginfo("Ball not seen in a while, resetting data")
+            self.x = []
+            self.y = []
+            self.z = []
+        
         self.x.append(data.x)
         self.y.append(data.y)
         self.z.append(data.z)
+        self.ball_last_seen = rospy.get_time()
         
         if len(self.x) >= self.min_data_points:
             x_f, y_f, z_f = self.predict_final_position()

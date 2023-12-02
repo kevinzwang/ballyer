@@ -56,7 +56,7 @@ class Controller:
     def control_loop(self):
         r = rospy.Rate(10)
         while not rospy.is_shutdown():
-            if self.goal_last_updated + 5 < rospy.get_time():
+            if self.goal_last_updated + 10 < rospy.get_time():
                 # if the goal hasn't been successfully updated in a while, reset the arm
                 tuck_pose_stamped = PoseStamped()
                 tuck_pose_stamped.pose = TUCK_POSE
