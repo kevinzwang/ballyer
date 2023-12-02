@@ -243,8 +243,8 @@ def detect_aruco(pipeline, align, camera_parameters, aruco_G, marker_length):
 
 
             # Displays the text on the image
-            # cv2.putText(color_image, f"Marker Pos Camera: {np.array2string(marker_position, precision=2)}", 
-            #             (text_pos[0], text_pos[1]), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness)
+            cv2.putText(color_image, f"Marker Pos Camera: {np.array2string(marker_position, precision=2)}", 
+                        (text_pos[0], text_pos[1]), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness)
             cv2.putText(color_image, f"Camera Dist to Marker: {distance_to_marker:.2f}m", 
                         (text_pos[0], text_pos[1]-30), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness)
             cv2.putText(color_image, f"qDepth Sensor to Marker: {depth:.2f}m", 
@@ -501,26 +501,26 @@ def main():
     # ## Make new aruco if needed
     # # make_aruco() 
  
-    # ### CHANGE THIS AFTER YOU MEASURE!
-    # # Measure the aruco's position and set this G = [[R, t],[0, 0, 0, 1]]  
-    # # Known aruco_G compared to robot base frame. Change this to known aruco position!
-    # aruco_G = np.array([[1, 0, 0, 0.13335], 
-    #                    [0, 1, 0, 0], 
-    #                    [0, 0, 1, -0.1143], 
-    #                    [0, 0, 0, 1]])
+    ### CHANGE THIS AFTER YOU MEASURE!
+    # Measure the aruco's position and set this G = [[R, t],[0, 0, 0, 1]]  
+    # Known aruco_G compared to robot base frame. Change this to known aruco position!
+    aruco_G = np.array([[1, 0, 0, 0.13335], 
+                       [0, 1, 0, 0], 
+                       [0, 0, 1, -0.1143], 
+                       [0, 0, 0, 1]])
     
-    # ### CHANGE THIS AFTER YOU MEASURE!
-    # # Set to width of aruco in meters. Measure world aruco after printing on paper. 
-    # marker_length= 0.137
-    # # Get the camera in the world frame
-    # camera_world_position = detect_aruco(pipeline, align, camera_parameters, aruco_G, marker_length)
-    # print("Camera World Position:", np.array2string(camera_world_position, separator=', '))
+    ### CHANGE THIS AFTER YOU MEASURE!
+    # Set to width of aruco in meters. Measure world aruco after printing on paper. 
+    marker_length= 0.137
+    # Get the camera in the world frame
+    camera_world_position = detect_aruco(pipeline, align, camera_parameters, aruco_G, marker_length)
+    print("Camera World Position:", np.array2string(camera_world_position, separator=', '))
     
     
     
     # ### UNCOMMENT THIS TO USE ROS 
     # # # Publish camera position to ROS topic camera_position
-    rospy.init_node('camera_tracking', anonymous=True)
+    # rospy.init_node('camera_tracking', anonymous=True)
     # camera_position_pub = rospy.Publisher('camera_position', Point, queue_size=10)
     # camera_position_msg = Point()
     # camera_position_msg.x = camera_world_position[0]
@@ -535,14 +535,14 @@ def main():
     ### UNCOMMENT THIS TO USE ROS. IN DETECT BALL ALSO NEED TO UNCOMMENT ROS 
     # Set up ROS topic ball_position. This is passed into detect_ball function, because it streams.
 
-    ball_position_pub = rospy.Publisher('ball_position', Point, queue_size=10)
+    # ball_position_pub = rospy.Publisher('ball_position', Point, queue_size=10)
 
 
-    # Store the coords_image dictionary.
-    coords_image = {'x': None, 'y': None, 'z': None}
+    # # Store the coords_image dictionary.
+    # coords_image = {'x': None, 'y': None, 'z': None}
     
     
-    detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, ball_position_pub)
+    # detect_ball(h_min, h_max, s_min, s_max, v_min, v_max, pipeline, align, camera_parameters, coords_image, ball_position_pub)
     
     
 
