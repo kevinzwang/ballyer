@@ -19,7 +19,7 @@ class ObjectDetection:
     def __init__(self) -> None:
         rospy.init_node('object_detector', anonymous=True)
         
-        rospy.Subscriber("/usb_cam/image_raw", Image, self.image_callback)
+        rospy.Subscriber("/usb_cam/image_rect_color", Image, self.image_callback)
         rospy.Subscriber("/usb_cam/camera_info", CameraInfo, self.camera_info_callback)
 
         self.ball_pos_pub = rospy.Publisher('ball_position', PointStamped, queue_size=10)
@@ -28,7 +28,7 @@ class ObjectDetection:
         
         self.h_min, self.h_max, self.s_min, self.s_max, self.v_min, self.v_max = 38, 57, 58, 214, 44, 188
         
-        self.calibrate = False
+        self.calibrate = True
         self.trackbars_created = False
 
         self.fx = None
@@ -41,10 +41,10 @@ class ObjectDetection:
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         
     def camera_info_callback(self, msg):
-        self.fx = msg.K[0]
-        self.fy = msg.K[4]
-        self.cx = msg.K[2]
-        self.cy = msg.K[5]
+        self.fx = msg.P[0]
+        self.fy = msg.P[5]
+        self.cx = msg.P[2]
+        self.cy = msg.P[6]
 
     def pixel_to_point(self, u, v, depth):
         X = (u - self.cx) * depth / self.fx
@@ -98,9 +98,12 @@ class ObjectDetection:
             upper = np.array([self.h_max, self.s_max, self.v_max])
             mask = cv2.inRange(hsv, lower, upper)
         
-        
-
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if self.calibrate:
+            ball_image = image.copy()
+
+
         if contours:
             contour = max(contours, key = cv2.contourArea)
             
@@ -109,12 +112,11 @@ class ObjectDetection:
 
                 if radius > 10:
 
-                    depth = 61 / radius
+                    depth = 80 / radius
                     
                     # Draw the circle and center
                     if self.calibrate:
                         print("rad ball: ", radius)
-                        ball_image = image.copy()
                         center = (int(u), int(v))
                         cv2.circle(ball_image, center, int(radius), (255,0,0), 2)
                         cv2.circle(ball_image, center, 5, (255,0,0), -1)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import rospy
-from geometry_msgs.msg import Point, PoseStamped
+from geometry_msgs.msg import PointStamped, PoseStamped
 import numpy as np
 import matplotlib.pyplot as plt
 from std_msgs.msg import Header
@@ -19,7 +19,7 @@ class BallPredictorNode:
         self.y = []
         self.z = []
 
-        rospy.Subscriber('ball_position', Point, self.position_callback)
+        rospy.Subscriber('ball_position', PointStamped, self.position_callback)
 
         self.arm_goal_publisher = rospy.Publisher('arm_goal', PoseStamped, queue_size=1)
         
@@ -32,9 +32,9 @@ class BallPredictorNode:
             self.y = []
             self.z = []
         
-        self.x.append(data.x)
-        self.y.append(data.y)
-        self.z.append(data.z)
+        self.x.append(data.point.x)
+        self.y.append(data.point.y)
+        self.z.append(data.point.z)
         self.ball_last_seen = rospy.get_time()
         
         if len(self.x) >= self.min_data_points:

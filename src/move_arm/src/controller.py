@@ -66,7 +66,7 @@ class Controller:
                 
             if self.goal is not None:
                 goal_dict = dict(zip(self.limb.joint_names(), self.goal))
-                self.limb.set_joint_position_speed(0.3)
+                self.limb.set_joint_position_speed(0.1)
                 self.limb.set_joint_positions(goal_dict)
             
             r.sleep()
