@@ -10,7 +10,7 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from std_msgs.msg import Header
 import tf2_geometry_msgs
-import tf
+import tf2_ros
 
 def nothing(x):
     pass
@@ -22,7 +22,7 @@ class ObjectDetection:
         rospy.Subscriber("/usb_cam/image_raw", Image, self.image_callback)
         rospy.Subscriber("/usb_cam/camera_info", CameraInfo, self.camera_info_callback)
 
-        self.ball_pos_pub = rospy.Publisher('ball_position', Point, queue_size=10)
+        self.ball_pos_pub = rospy.Publisher('ball_position', PointStamped, queue_size=10)
         self.ball_img_pub = rospy.Publisher('ball_image', Image, queue_size=10)
         self.bridge = CvBridge()
         
@@ -36,10 +36,10 @@ class ObjectDetection:
         self.cx = None
         self.cy = None
 
-        self.tf_listener = tf.TransformListener()
-        
-        print(dir(tf2_geometry_msgs))
+        self.tf_buffer = tf2_ros.Buffer()                    # base_point = self.tf_listener.transformPoint("/base", camera_point)
 
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+        
     def camera_info_callback(self, msg):
         self.fx = msg.K[0]
         self.fy = msg.K[4]
@@ -106,37 +106,39 @@ class ObjectDetection:
             
             if cv2.contourArea(contour):
                 (u, v), radius = cv2.minEnclosingCircle(contour)
-                depth = 61 / radius
-                
-                # Draw the circle and center
-                if self.calibrate:
-                    print("rad ball: ", radius)
-                    ball_image = image.copy()
-                    center = (int(u), int(v))
-                    cv2.circle(ball_image, center, int(radius), (255,0,0), 2)
-                    cv2.circle(ball_image, center, 5, (255,0,0), -1)
-                
-                if self.fx is not None:
-                    x, y, z = self.pixel_to_point(u, v, depth)
 
-                    try:
-                        self.tf_listener.waitForTransform("/base", "/usb_cam", rospy.Time(), rospy.Duration(10.0))
-                    except :
-                        # Writes an error message to the ROS log but does not raise an exception
-                        rospy.logerr("Could not extract pose from TF.")
-                        return
+                if radius > 10:
+
+                    depth = 61 / radius
                     
-                    # camera_point = PointStamped()
-                    # camera_point.header = Header(stamp=rospy.Time(), frame_id='usb_cam')
-                    # camera_point.point.x = x
-                    # camera_point.point.y = y
-                    # camera_point.point.z = z
-
-                    # base_point = self.tf_listener.transformPoint("/base", camera_point)
-                    # self.ball_pos_pub.publish(base_point.point)
-                    # print(base_point)
+                    # Draw the circle and center
+                    if self.calibrate:
+                        print("rad ball: ", radius)
+                        ball_image = image.copy()
+                        center = (int(u), int(v))
+                        cv2.circle(ball_image, center, int(radius), (255,0,0), 2)
+                        cv2.circle(ball_image, center, 5, (255,0,0), -1)
                     
+                    if self.fx is not None:
+                        x, y, z = self.pixel_to_point(u, v, depth)
 
+                        try:
+                            trans = self.tf_buffer.lookup_transform("base", "usb_cam", rospy.Time())
+
+                            camera_point = PointStamped()
+                            camera_point.point.x = x
+                            camera_point.point.y = y
+                            camera_point.point.z = z
+
+                            base_point = tf2_geometry_msgs.do_transform_point(camera_point, trans)
+
+                            self.ball_pos_pub.publish(base_point)
+                        except Exception as e:
+                            # Writes an error message to the ROS log but does not raise an exception
+                            rospy.logerr("Could not extract pose from TF.")
+                            rospy.logerr(e)
+                            return
+                        
         if self.calibrate:
             self.update_calibration(image, mask, ball_image)
             
