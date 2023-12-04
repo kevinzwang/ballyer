@@ -31,6 +31,10 @@ class BallPredictorNode:
             self.x = []
             self.y = []
             self.z = []
+
+        if data.point.x < self.x_f or data.point.z < 0:
+            # ignore balls past the plane
+            return
         
         self.x.append(data.point.x)
         self.y.append(data.point.y)

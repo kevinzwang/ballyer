@@ -3,6 +3,7 @@
 import rospy
 import intera_interface
 from std_msgs.msg import Header
+from sensor_msgs.msg import JointState
 from geometry_msgs.msg import PoseStamped, Pose
 from intera_core_msgs.srv import SolvePositionIK, SolvePositionIKRequest
 
@@ -35,10 +36,13 @@ class Controller:
         ik_request.pose_stamp.append(pose_stamped)
         ik_request.tip_names.append('right_hand')
         
-        # seed with the old goal so that the new goal is close to the old goal
+        # seed with the current pos so that the new goal is close
         # if too many IK requests fail we should remove this
-        # if self.goal is not None:
-        #     ik_request.seed_angles.append(self.goal)
+        seed = JointState()
+        for name, pos in self.limb.joint_angles().items():
+            seed.name.append(name)
+            seed.position.append(pos)
+        ik_request.seed_angles.append(seed)
         
         try:
             response = self.ik_service_proxy(ik_request)
@@ -66,7 +70,7 @@ class Controller:
                 
             if self.goal is not None:
                 goal_dict = dict(zip(self.limb.joint_names(), self.goal))
-                self.limb.set_joint_position_speed(0.1)
+                self.limb.set_joint_position_speed(0.9)
                 self.limb.set_joint_positions(goal_dict)
             
             r.sleep()

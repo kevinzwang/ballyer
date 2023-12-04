@@ -28,7 +28,7 @@ class ObjectDetection:
         
         self.h_min, self.h_max, self.s_min, self.s_max, self.v_min, self.v_max = 38, 57, 58, 214, 44, 188
         
-        self.calibrate = True
+        self.calibrate = False
         self.trackbars_created = False
 
         self.fx = None
@@ -112,7 +112,7 @@ class ObjectDetection:
 
                 if radius > 10:
 
-                    depth = 80 / radius
+                    depth = 69 / radius
                     
                     # Draw the circle and center
                     if self.calibrate:
