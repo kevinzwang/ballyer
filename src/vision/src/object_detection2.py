@@ -5,9 +5,11 @@ import numpy as np
 
 
 import rospy
-from geometry_msgs.msg import Point
-from sensor_msgs.msg import Image
+from geometry_msgs.msg import Point, PointStamped
+from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
+from std_msgs.msg import Header
+import tf
 
 def nothing(x):
     pass
@@ -17,42 +19,64 @@ class ObjectDetection:
         rospy.init_node('object_detector', anonymous=True)
         
         rospy.Subscriber("/usb_cam/image_raw", Image, self.image_callback)
-        
+        rospy.Subscriber("/usb_cam/camera_info", CameraInfo, self.camera_info_callback)
+
         self.ball_pos_pub = rospy.Publisher('ball_position', Point, queue_size=10)
         self.ball_img_pub = rospy.Publisher('ball_image', Image, queue_size=10)
         self.bridge = CvBridge()
         
-        self.h_min, self.h_max, self.s_min, self.s_max, self.v_min, self.v_max = 64, 83, 166, 255, 35, 255
+        self.h_min, self.h_max, self.s_min, self.s_max, self.v_min, self.v_max = 38, 57, 58, 214, 44, 188
         
-        self.setup_calibration()
-        
-    def setup_calibration(self):
-        cv2.namedWindow("Original Frame")
-        cv2.namedWindow("HSV Mask")
-        cv2.namedWindow("Detected Ball")
-        
-        cv2.createTrackbar('HMin', 'HSV Mask', self.h_min, 179, nothing)
-        cv2.createTrackbar('HMax', 'HSV Mask', self.h_max, 179, nothing)
-        cv2.createTrackbar('SMin', 'HSV Mask', self.s_min, 255, nothing)
-        cv2.createTrackbar('SMax', 'HSV Mask', self.s_max, 255, nothing)
-        cv2.createTrackbar('VMin', 'HSV Mask', self.v_min, 255, nothing)
-        cv2.createTrackbar('VMax', 'HSV Mask', self.v_max, 255, nothing)
-        
-    def update_calibration(self):
+        self.calibrate = False
+        self.trackbars_created = False
+
+        self.fx = None
+        self.fy = None
+        self.cx = None
+        self.cy = None
+
+        self.tf_listener = tf.TransformListener()
+
+    def camera_info_callback(self, msg):
+        self.fx = msg.K[0]
+        self.fy = msg.K[4]
+        self.cx = msg.K[2]
+        self.cy = msg.K[5]
+
+    def pixel_to_point(self, u, v, depth):
+        X = (u - self.cx) * depth / self.fx
+        Y = (v - self.cy) * depth / self.fy
+        Z = depth
+        return X, Y, Z
+                
+    def update_calibration(self, image, mask):
+        cv2.imshow("Original Frame", image)
+        cv2.imshow("HSV Mask", mask)
+
+        if not self.trackbars_created:
+            cv2.namedWindow("Original Frame")
+            cv2.namedWindow("HSV Mask")
+
+            cv2.createTrackbar('HMin', 'HSV Mask', self.h_min, 179, nothing)
+            cv2.createTrackbar('HMax', 'HSV Mask', self.h_max, 179, nothing)
+            cv2.createTrackbar('SMin', 'HSV Mask', self.s_min, 255, nothing)
+            cv2.createTrackbar('SMax', 'HSV Mask', self.s_max, 255, nothing)
+            cv2.createTrackbar('VMin', 'HSV Mask', self.v_min, 255, nothing)
+            cv2.createTrackbar('VMax', 'HSV Mask', self.v_max, 255, nothing)
+            self.trackbars_created = True
+
         self.h_min = cv2.getTrackbarPos('HMin', 'HSV Mask')
         self.h_max = cv2.getTrackbarPos('HMax', 'HSV Mask')
         self.s_min = cv2.getTrackbarPos('SMin', 'HSV Mask')
         self.s_max = cv2.getTrackbarPos('SMax', 'HSV Mask')
         self.v_min = cv2.getTrackbarPos('VMin', 'HSV Mask')
         self.v_max = cv2.getTrackbarPos('VMax', 'HSV Mask')
+
+        cv2.waitKey(10)
         
-    def image_callback(self, image):
-        self.update_calibration()
-        
-        image = self.bridge.imgmsg_to_cv2(image, "bgr8")
-        
-        cv2.imshow("Original Frame", image)
-        
+    def image_callback(self, image):        
+        image = self.bridge.imgmsg_to_cv2(image, 'bgr8')
+                
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
                 
         if self.h_min > self.h_max:
@@ -70,12 +94,48 @@ class ObjectDetection:
             upper = np.array([self.h_max, self.s_max, self.v_max])
             mask = cv2.inRange(hsv, lower, upper)
             
-        cv2.imshow("HSV Mask", mask)
+        ball_image = image.copy()
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            contour = max(contours, key = cv2.contourArea)
+            
+            if cv2.contourArea(contour):
+                (u, v), radius = cv2.minEnclosingCircle(contour)
+                center = (int(u), int(v))
+                print("rad ball: ", radius)
+
+                depth = 61 / radius
+                
+                # Draw the circle and center
+                cv2.circle(ball_image, center, int(radius), (255,0,0), 2)
+                cv2.circle(ball_image, center, 5, (255,0,0), -1)
+                
+                if self.fx is not None:
+                    x, y, z = self.pixel_to_point(u, v, depth)
+
+                    try:
+                        self.tf_listener.waitForTransform("/base", "/usb_cam", rospy.Time(), rospy.Duration(10.0))
+                    except :
+                        # Writes an error message to the ROS log but does not raise an exception
+                        rospy.logerr("Could not extract pose from TF.")
+                    
+                    camera_point = PointStamped()
+                    camera_point.header = Header(stamp=rospy.Time(), frame_id='usb_cam')
+                    camera_point.point.x = x
+                    camera_point.point.y = y
+                    camera_point.point.z = z
+
+                    base_point = self.tf_listener.transformPoint("/base", camera_point)
+                    self.ball_pos_pub.publish(base_point.point)
+                    print(base_point)
+                    
+
+        if self.calibrate:
+            self.update_calibration(image, mask)
         
-        # contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        # img_msg = self.bridge.cv2_to_imgmsg(mask, "mono8")
-        # self.ball_img_pub.publish(img_msg)
+        img_msg = self.bridge.cv2_to_imgmsg(ball_image, "passthrough")
+        self.ball_img_pub.publish(img_msg)
     
     def run(self):
         rospy.spin()
