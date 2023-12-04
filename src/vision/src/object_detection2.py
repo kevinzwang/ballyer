@@ -9,6 +9,7 @@ from geometry_msgs.msg import Point, PointStamped
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from std_msgs.msg import Header
+import tf2_geometry_msgs
 import tf
 
 def nothing(x):
@@ -36,6 +37,8 @@ class ObjectDetection:
         self.cy = None
 
         self.tf_listener = tf.TransformListener()
+        
+        print(dir(tf2_geometry_msgs))
 
     def camera_info_callback(self, msg):
         self.fx = msg.K[0]
@@ -49,9 +52,10 @@ class ObjectDetection:
         Z = depth
         return X, Y, Z
                 
-    def update_calibration(self, image, mask):
+    def update_calibration(self, image, mask, ball_image):
         cv2.imshow("Original Frame", image)
         cv2.imshow("HSV Mask", mask)
+        cv2.imshow("Tracked Ball", ball_image)
 
         if not self.trackbars_created:
             cv2.namedWindow("Original Frame")
@@ -93,8 +97,8 @@ class ObjectDetection:
             lower = np.array([self.h_min, self.s_min, self.v_min])
             upper = np.array([self.h_max, self.s_max, self.v_max])
             mask = cv2.inRange(hsv, lower, upper)
-            
-        ball_image = image.copy()
+        
+        
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
@@ -102,14 +106,15 @@ class ObjectDetection:
             
             if cv2.contourArea(contour):
                 (u, v), radius = cv2.minEnclosingCircle(contour)
-                center = (int(u), int(v))
-                print("rad ball: ", radius)
-
                 depth = 61 / radius
                 
                 # Draw the circle and center
-                cv2.circle(ball_image, center, int(radius), (255,0,0), 2)
-                cv2.circle(ball_image, center, 5, (255,0,0), -1)
+                if self.calibrate:
+                    print("rad ball: ", radius)
+                    ball_image = image.copy()
+                    center = (int(u), int(v))
+                    cv2.circle(ball_image, center, int(radius), (255,0,0), 2)
+                    cv2.circle(ball_image, center, 5, (255,0,0), -1)
                 
                 if self.fx is not None:
                     x, y, z = self.pixel_to_point(u, v, depth)
@@ -119,24 +124,22 @@ class ObjectDetection:
                     except :
                         # Writes an error message to the ROS log but does not raise an exception
                         rospy.logerr("Could not extract pose from TF.")
+                        return
                     
-                    camera_point = PointStamped()
-                    camera_point.header = Header(stamp=rospy.Time(), frame_id='usb_cam')
-                    camera_point.point.x = x
-                    camera_point.point.y = y
-                    camera_point.point.z = z
+                    # camera_point = PointStamped()
+                    # camera_point.header = Header(stamp=rospy.Time(), frame_id='usb_cam')
+                    # camera_point.point.x = x
+                    # camera_point.point.y = y
+                    # camera_point.point.z = z
 
-                    base_point = self.tf_listener.transformPoint("/base", camera_point)
-                    self.ball_pos_pub.publish(base_point.point)
-                    print(base_point)
+                    # base_point = self.tf_listener.transformPoint("/base", camera_point)
+                    # self.ball_pos_pub.publish(base_point.point)
+                    # print(base_point)
                     
 
         if self.calibrate:
-            self.update_calibration(image, mask)
-        
-        img_msg = self.bridge.cv2_to_imgmsg(ball_image, "passthrough")
-        self.ball_img_pub.publish(img_msg)
-    
+            self.update_calibration(image, mask, ball_image)
+            
     def run(self):
         rospy.spin()
     
